@@ -1,0 +1,229 @@
+---
+title: "Exam 2"
+subtitle: <center> <h1>Take-Home Data Analysis</h1> </center>
+author: <center> Jake Hiltscher <center>
+output: html_document
+---
+
+<style type="text/css">
+h1.title {
+  font-size: 40px;
+  text-align: center;
+}
+</style>
+
+
+```{r setup, include=FALSE}
+# load any necessary packages here
+library(tidyverse)
+library(ggfortify)  # plot lm objects using ggplot instead of base R
+library(car)  # needed for added-variable plots and dfbetas and dffits
+library(corrplot)  # colored correlation matrix
+library(gridExtra)  # NEW PACKAGE for putting multiple ggplots in one plot
+library(bestglm)  # for stepwise methods
+library(glmnet)  # for ridge, lasso, and elastic net
+set.seed(12345)
+```
+
+## Exam Instructions
+
+Use this .rmd file to perform your analysis. You will answer questions about this data set through a Canvas Quiz. You will then submit your completed .rmd and .html file at the end of the Canvas quiz. Your code should be organized, properly formatted, and you should only print out relevant items (e.g. do not print out the entire data set for me to see, and do not use the `View()` function).
+
+## Data and Description
+
+Researchers collected data on 414 homes in China. The goal is to use rather unique explanatory variables to predict house price (measured in cost (US Dollars) per unit area). The following are predictor variables:
+
+Variable | Description
+-------- | -------------------------
+age      | Age of the house (number of years since being built) in years
+stores   | Number of convenience stores within a 500 meter circle around the house
+metro    | Distance from the house to the nearest metro station (in meters) 
+trails   | Distance from the house to the nearest walking trail (in meters) 
+
+Download the RealEstate.txt file from Canvas (Files -> DATA SETS), and put it in the same folder as this R Markdown file.
+
+### Complete your exploratory data analysis (EDA) in this section. You may use multiple code chunks, if you wish, to organize your code.
+
+```{r}
+real_estate <- read_table("RealEstate.txt")
+real_estate <- as.data.frame(real_estate)
+summary(real_estate)
+```
+
+### Fit an inital model, and check the "(A) no influential points" assumption in this section. You may use multiple code chunks, if you wish, to organize your code.
+
+```{r}
+real_estate_lm <- lm(price ~ ., data = real_estate)
+summary(real_estate_lm)
+pairs(real_estate)
+
+corrplot(cor(real_estate))
+
+avPlots(real_estate_lm)
+
+# age -------------------------------------------------------------------
+# calculate the DFBETAS for age
+real_estate$dfbetas_age <- as.vector(dfbetas(real_estate_lm)[, "age"])
+# plot the DFBETAS against the observation number
+dfbetas_plot_age <- ggplot(data = real_estate) + 
+  geom_point(mapping = aes(x = as.numeric(rownames(real_estate)), 
+                           y = abs(dfbetas_age))) +
+  ylab("Abs(DFBETAS) for Age") +
+  xlab("Observation Number") +
+  # for n > 30
+  geom_hline(mapping = aes(yintercept = 2 / sqrt(length(dfbetas_age))),
+             color = "red", 
+             linetype = "dashed") + 
+  # for n <= 30
+  geom_hline(mapping = aes(yintercept = 1),
+             color = "red", 
+             linetype = "dashed") +
+  theme(aspect.ratio = 1)
+# stores -------------------------------------------------------------------
+# calculate the DFBETAS for stores
+real_estate$dfbetas_stores <- as.vector(dfbetas(real_estate_lm)[, "stores"])
+# plot the DFBETAS against the observation number
+dfbetas_plot_stores <- ggplot(data = real_estate) + 
+  geom_point(mapping = aes(x = as.numeric(rownames(real_estate)), 
+                           y = abs(dfbetas_stores))) +
+  ylab("Abs(DFBETAS) for Stores") +
+  xlab("Observation Number") +
+  # for n > 30
+  geom_hline(mapping = aes(yintercept = 2 / sqrt(length(dfbetas_stores))),
+             color = "red", 
+             linetype = "dashed") + 
+  # for n <= 30
+  geom_hline(mapping = aes(yintercept = 1),
+             color = "red", 
+             linetype = "dashed") +
+  theme(aspect.ratio = 1)
+# metro -------------------------------------------------------------------
+# calculate the DFBETAS for metro
+real_estate$dfbetas_metro <- as.vector(dfbetas(real_estate_lm)[, "metro"])
+# plot the DFBETAS against the observation number
+dfbetas_plot_metro <- ggplot(data = real_estate) + 
+  geom_point(mapping = aes(x = as.numeric(rownames(real_estate)), 
+                           y = abs(dfbetas_metro))) +
+  ylab("Abs(DFBETAS) for Metro") +
+  xlab("Observation Number") +
+  # for n > 30
+  geom_hline(mapping = aes(yintercept = 2 / sqrt(length(dfbetas_metro))),
+             color = "red", 
+             linetype = "dashed") + 
+  # for n <= 30
+  geom_hline(mapping = aes(yintercept = 1),
+             color = "red", 
+             linetype = "dashed") +
+  theme(aspect.ratio = 1)
+# trails -------------------------------------------------------------------
+# calculate the DFBETAS for trails
+real_estate$dfbetas_trails <- as.vector(dfbetas(real_estate_lm)[, "trails"])
+# plot the DFBETAS against the observation number
+dfbetas_plot_trails <- ggplot(data = real_estate) + 
+  geom_point(mapping = aes(x = as.numeric(rownames(real_estate)), 
+                           y = abs(dfbetas_trails))) +
+  ylab("Abs(DFBETAS) for Trails") +
+  xlab("Observation Number") +
+  # for n > 30
+  geom_hline(mapping = aes(yintercept = 2 / sqrt(length(dfbetas_trails))),
+             color = "red", 
+             linetype = "dashed") + 
+  # for n <= 30
+  geom_hline(mapping = aes(yintercept = 1),
+             color = "red", 
+             linetype = "dashed") +
+  theme(aspect.ratio = 1)
+grid.arrange(dfbetas_plot_age,
+             dfbetas_plot_stores,
+             dfbetas_plot_metro,
+             dfbetas_plot_trails,
+             nrow = 2)
+
+```
+
+### Fit a model on a new data set where the one influential point is removed, and check the "no multicollinearity" assumption, in this section. You may use multiple code chunks, if you wish, to organize your code.
+
+```{r}
+# Removing influential point (Observation 271)
+real_estate <- read_table("RealEstate.txt")
+real_estate <- as.data.frame(real_estate)
+new_real_estate <- real_estate[-271, ]
+
+new_real_estate_lm <- lm(price ~ ., data = new_real_estate)
+summary(new_real_estate_lm)
+vif(new_real_estate_lm)
+
+```
+
+### Fit another model (on the new data set where the one influential point is removed) with the age variable square rooted (do not use the original age variable) in this section. 
+
+```{r}
+sqrt_real_estate_lm <- lm(price ~ sqrt(age) +.-age,data = new_real_estate)
+summary(sqrt_real_estate_lm)
+
+sqrt_real_estate <- new_real_estate
+sqrt_real_estate$age_sqrt <- sqrt(sqrt_real_estate$age)
+
+```
+
+### Perform variable selection in this section. You may use multiple code chunks, if you wish, to organize your code.
+
+```{r}
+real_estate <- sqrt_real_estate[ , c("age_sqrt", "stores", "metro", "trails", "price")]
+# Backwards selection
+best_subsets_bic <- bestglm(real_estate,
+                            IC = "BIC",
+                            method = "exhaustive")
+
+# view variables included in the top 10 models
+best_subsets_bic$BestModels
+
+# view a summary of the "best" model
+summary(best_subsets_bic$BestModel)
+
+# PMSE selection
+best_subsets_pmse <- bestglm(real_estate,
+                             IC ="CV")
+
+# view variables included in the top 10 models
+best_subsets_pmse
+
+# view a summary of the "best" model
+summary(best_subsets_pmse)
+```
+
+### Fit a model with any variables removed that you deem unnecesary for the model in this section.
+
+```{r}
+screen_real_estate <- sqrt_real_estate[ , c("age_sqrt", "stores", "metro", "price")]
+summary(screen_real_estate)
+
+screen_real_estate_lm <- lm(price ~., data = screen_real_estate)
+summary(screen_real_estate_lm)
+```
+
+### Determine if any interaction(s) are needed for this model in this section. You may use multiple code chunks, if you wish, to organize your code.
+
+```{r}
+screen_real_estate_lm <- lm(price ~.+age_sqrt*stores+age_sqrt*metro+stores*metro, data = screen_real_estate)
+summary(screen_real_estate_lm)
+anova(screen_real_estate_lm)
+screen_real_estate_lm <- lm(price ~.+age_sqrt*metro+stores*metro, data = screen_real_estate)
+```
+Two interactions are needed - Age:metro and stores:metro.
+
+### Complete statistical inference based on the best linear model you chose in this section. You may use multiple code chunks, if you wish, to organize your code.
+
+```{r}
+# <your code here>
+pairs(screen_real_estate)
+corrplot(cor(screen_real_estate))
+```
+Through our analyses, the price of a house is effected by the number of metros and stores in an area, as well as the age of the house. There is also an interaction between number of metros and stores in an area. This is analysis is almost quantitatively comparing rural areas to metropolitan areas. Age also has an effect on the price of a house.
+
+```{r}
+predict(screen_real_estate_lm, 
+        newdata = data.frame(age_sqrt = 20, stores = 3, metro = 500, trails = 6000),
+        level = 0.95,
+        interval = "confidence")
+```

@@ -1,0 +1,415 @@
+---
+title: "Exam 3"
+subtitle: <center> <h1>Take-Home Data Analysis</h1> </center>
+author: <center> Jake Hiltscher <center>
+output: html_document
+---
+
+<style type="text/css">
+h1.title {
+  font-size: 40px;
+  text-align: center;
+}
+</style>
+
+```{r setup, include=FALSE}
+# load packages here
+library(tidyverse)
+library(ggfortify)
+library(corrplot)  # for the correlation matrix
+library(bestglm)  # for variable selection
+library(car)  # for VIFs
+library(gridExtra)
+library(lmtest)
+library(pROC)  # for the ROC curve
+library(ROCR)  # for the color-coded ROC curve
+library(caret)
+library(glmnet)
+```
+
+# Exam Instructions
+
+Use this .rmd file to perform your analysis. You will answer questions about this data set through a Canvas Quiz. You will then submit your completed .rmd and .html file at the end of the Canvas quiz. Your code should be organized, properly formatted, and you should only print out relevant items (e.g. do not print out the entire data set for me to see, and do not use the `View()` function).
+
+**Note that there are two parts (separate analyses) for this Exam**
+
+# Data and Description
+
+A company that sells outdoor equipment collected data on 371 customers. The company sells a variety of products and is considering selling snowshoes. The following variables were recorded:
+
+Variable  | Description
+--------- | -------------------------
+age       | Age of the customer in years
+product	  | The primary type of product the customer has previously purchased. One of: "winterSports" (used as the baseline), "mountainSports", "waterSports"
+quantity  | The total number of unique products the customer has previously purchased
+tenure	  | The number of days since the customers' first purchase
+snowshoes | Indication of purchasing snowshoes in the future, if the company were to sell them. One of: 1 (the customer indicated they would buy snowshoes), 0 (the customer indicated they would not buy snowshoes)
+
+Download the snowshoe.txt file from Canvas (Files -> DATA SETS), and put it in the same folder as this R Markdown file.
+
+## PART 1 (PREDICT SNOWSHOES) -----------------------------------------------
+
+For Part 1 of this analysis, you will address the company's first goal of using the data from their current customers to create a model to predict whether a particular customer will buy snowshoes. 
+
+### Complete your exploratory data analysis (EDA) in this section. You may use multiple code chunks, if you wish, to organize your code.
+
+```{r read-in-data}
+#READ IN DATA
+snowshoe <- read.table("snowshoe.txt", header = TRUE) %>%
+  mutate_if(is.character, as.factor) %>% mutate(snowshoes = as.factor(snowshoes))
+
+#SET BASELINE winterSports
+snowshoe <- within(snowshoe, product <- relevel(product, ref = 3))
+
+summary(snowshoe)
+
+corrplot(cor(snowshoe %>% select(-c("snowshoes", "product"))), type = "upper")
+
+# Boxplot for quantity
+box_quantity <- ggplot(data = snowshoe) +
+  geom_boxplot(mapping = aes(y = quantity, x = snowshoes)) +
+  theme(aspect.ratio = 1) +
+  coord_flip()
+
+# Boxplot for tenure
+box_tenure <- ggplot(data = snowshoe) +
+  geom_boxplot(mapping = aes(y = tenure, x = snowshoes)) +
+  theme(aspect.ratio = 1) +
+  coord_flip()
+
+# Boxplot for age
+box_age <- ggplot(data = snowshoe) +
+  geom_boxplot(mapping = aes(y = age, x = snowshoes)) +
+  theme(aspect.ratio = 1) +
+  coord_flip()
+
+grid.arrange(box_quantity, 
+             box_tenure,
+             box_age,
+             nrow = 2)
+
+# Jittered Scatterplot for tenure
+jit_tenure <- ggplot(data = snowshoe) +
+  geom_point(mapping = aes(y = snowshoes, x = tenure)) +
+  geom_jitter(mapping = aes(y = snowshoes, x = tenure),
+              height = 0.1) +
+  theme(aspect.ratio = 1)
+
+# Jittered Scatterplot for quantity
+jit_quantity <- ggplot(data = snowshoe) +
+  geom_point(mapping = aes(y = snowshoes, x = quantity)) +
+  geom_jitter(mapping = aes(y = snowshoes, x = quantity),
+              height = 0.1) +
+  theme(aspect.ratio = 1)
+
+# Jittered Scatterplot for age
+jit_age <- ggplot(data = snowshoe) +
+  geom_point(mapping = aes(y = snowshoes, x = age)) +
+  geom_jitter(mapping = aes(y = snowshoes, x = age),
+              height = 0.1) +
+  theme(aspect.ratio = 1)
+
+grid.arrange(jit_tenure, 
+             jit_quantity,
+             jit_age,
+             nrow = 2)
+
+```
+
+
+### Perform variable selection in this section. You may use multiple code chunks, if you wish, to organize your code.
+```{r}
+snowshoe_x <- as.matrix(snowshoe[, 1:3])
+snowshoe_y <- snowshoe[, 5]
+
+# use cross validation to pick the "best" (based on MSE) lambda
+snowshoe_ridge_cv <- cv.glmnet(x = snowshoe_x,
+                          y = snowshoe_y, 
+                          type.measure = "mse", 
+                          alpha = 0.5, family = "binomial")  # 0.5 is code for "Elastic Net"
+
+# plot (log) lambda vs MSE
+autoplot(snowshoe_ridge_cv, label = FALSE) +
+  theme_bw() +
+  theme(aspect.ratio = 1)
+
+# lambda.min: value of lambda that gives minimum mean cross-validated error
+snowshoe_ridge_cv$lambda.min
+# lambda.1se: value of lambda within 1 standard error of the minimum 
+# cross-validated error
+snowshoe_ridge_cv$lambda.1se
+
+coef(snowshoe_ridge_cv, s = "lambda.min")
+coef(snowshoe_ridge_cv, s = "lambda.1se")
+```
+
+
+```{r}
+# BEST SUBSETS using BIC
+snowshoe_best_subsets_bic <- bestglm(as.data.frame(snowshoe),
+                                  IC = "BIC",
+                                  method = "exhaustive",
+                                  TopModels = 1,
+                                  family = binomial)
+summary(snowshoe_best_subsets_bic$BestModel)
+
+```
+
+### Fit a model using the variables you selected from the prevous section, and determine in any interaction(s) are needed for this model in this section. You may use multiple code chunks, if you wish, to organize your code.
+
+```{r}
+# Logistic regression Model
+
+snowshoe_logistic <- snowshoe_best_subsets_bic$BestModel
+anova(snowshoe_logistic)
+
+#INTERACTION ANOVA
+new.model <- update(snowshoe_logistic,snowshoes ~ (.)^2, data = snowshoe, family = "binomial")
+anova(new.model, snowshoe_logistic,test = "LRT")
+```
+
+### Based on your results above, fit an appropriate ("final") model and check model assumptions in this section. You may use multiple code chunks, if you wish, to organize your code.
+
+```{r}
+# FINAL MODEL
+summary(snowshoe_logistic)
+
+#LINEARITY
+#quantity
+scatter.smooth(x = snowshoe$quantity, y = as.numeric(snowshoe$snowshoes) - 1)
+
+# age
+scatter.smooth(x = snowshoe$age, y = as.numeric(snowshoe$snowshoes) - 1)
+
+#DFFITS
+snowshoe$dffits <- dffits(snowshoe_logistic)
+
+ ggplot(data = snowshoe) + 
+   geom_point(mapping = aes(x = as.numeric(rownames(snowshoe)), 
+                            y = abs(dffits))) +
+   ylab("Absolute Value of DFFITS for snowshoes") +
+   xlab("Observation Number") +
+   # for n > 30
+   geom_hline(mapping = aes(yintercept = 2 * sqrt(length(snowshoe_logistic$coefficients) /
+                                                    length(dffits))),
+              color = "red", 
+              linetype = "dashed") +
+   theme(aspect.ratio = 1)
+ 
+
+#MULTICOLLINEARITY
+vif(snowshoe_logistic)
+```
+
+### Complete statistical inference based on the best model you chose in this section. You may use multiple code chunks, if you wish, to organize your code.
+
+```{r}
+# <your code here>
+```
+
+``` {r}
+# used for canvas quiz
+confint(snowshoe_logistic, level = 0.95)
+preds <- predict(snowshoe_logistic,
+        newdata = data.frame(age =23,
+                             product="waterSports",
+                             quantity=6),
+        level=0.95,
+        interval = 'confidence',
+        type = "link",
+        se.fit = TRUE)
+
+critval <- 1.96 ## approx 95% CI
+upr <- preds$fit + (critval * preds$se.fit)
+lwr <- preds$fit - (critval * preds$se.fit)
+fit <- preds$fit
+
+upr
+lwr
+fit
+```
+``` {r}
+# Confusion matrix
+snowshoe_preds <- predict(snowshoe_logistic, type = "response")
+# create a sequence from 0 to 1 to represent all possible cut-off values that
+# we could choose:
+possible_cutoffs <- seq(0, 1, length = 100)
+
+snowshoe_binary <- ifelse(snowshoe$snowshoes == "1", 1, 0)
+# create an empty vector where we will store the percent misclassified for each
+# possible cut-off value we created:
+percent_misclass <- rep(NA, length(possible_cutoffs))
+
+# for each possible cut-off value, (1) grab the cut-off value, (2) for all 757
+# patients, store a 1 in "classify" if their predicted probability is larger 
+# than the cut-off value, and (3) compute the average percent misclassified 
+# across the 757 patients when using that cut-off by averaging the number of 
+# times "classify" (0 or 1 based on how that cut-off classified a person) is 
+# not the same as heart_binary (the truth):
+for(i in 1:length(possible_cutoffs)) {
+  cutoff <- possible_cutoffs[i]  # (1)
+  classify <- ifelse(snowshoe_preds > cutoff, 1, 0)  # (2) 
+  percent_misclass[i] <- mean(classify != snowshoe_binary)  # (3)
+}
+# percent_misclass holds the average misclassification rates for each cut-off
+
+# put this information in a dataframe so we can plot it with ggplot:
+misclass_data <- as.data.frame(cbind(percent_misclass, possible_cutoffs))
+
+# plot the misclassification rate against the cut-off value:
+ggplot(data = misclass_data) +
+  geom_line(mapping = aes(x = possible_cutoffs, y = percent_misclass),
+            size = 2) +
+  theme_bw() + 
+  xlab("Cutoff Value") +
+  ylab("Percent Misclassified") +
+  theme(aspect.ratio = 1)
+
+# choose the "best" cut-off that minimizes the percent misclassified:
+cutoff <- possible_cutoffs[which.min(percent_misclass)]
+cutoff
+
+
+#use model to predict probability of default
+predicted <- as.factor(ifelse(predict(snowshoe_logistic, type="response") > cutoff,1,0))
+
+#convert defaults from "Yes" and "No" to 1's and 0's
+snowshoe_binary <- ifelse(snowshoe$snowshoes == "1", 1, 0)
+
+snowshoe_binary <- factor(snowshoe_binary, levels = levels(snowshoe[["snowshoes"]]))
+
+
+#create confusion matrix
+confuse_mat <- confusionMatrix(data = predicted, reference = snowshoe_binary)
+confuse_mat
+
+#AUC and ROC curve
+snowshoe_preds <- predict(snowshoe_logistic, type = "response")
+my_roc <- roc(snowshoe$snowshoes, snowshoe_preds)
+
+ggplot() +
+  geom_path(mapping = aes(x = 1 - my_roc$specificities, 
+                          y = my_roc$sensitivities), 
+            size = 2) +
+  geom_abline(slope = 1, intercept = 0) +
+  theme_bw() + 
+  xlab("1 - Specificity (False Positive Rate)") +
+  ylab("Sensitivity (True Positive Rate)") +
+  theme(aspect.ratio = 1)
+
+auc(my_roc)  # AUC
+```
+
+
+## PART 2 (PREDICT TENURE) ---------------------------------------------------
+
+For Part 2 of this analysis, you will address the company's second goal of using this data to create a model to predict a customer's tenure (the number of days since the customers' first purchase).
+
+### Complete your exploratory data analysis (EDA) in this section. You may use multiple code chunks, if you wish, to organize your code.
+
+```{r}
+snowshoe <- read.table("snowshoe.txt", header = TRUE) %>%
+  mutate_if(is.character, as.factor) %>% mutate(snowshoes = as.factor(snowshoes))
+
+#SET BASELINE winterSports
+snowshoe <- within(snowshoe, product <- relevel(product, ref = 3))
+tenure <- snowshoe %>% select(-tenure,everything())
+
+tenure_hist <- ggplot(data = tenure) + 
+  geom_histogram(mapping = aes(x = tenure, y = ..density..),
+                 binwidth = 5) +
+  theme_bw() + 
+  theme(aspect.ratio = 1)
+tenure_hist
+
+```
+
+### Perform variable selection in this section. You may use multiple code chunks, if you wish, to organize your code.
+
+```{r}
+tenure_best_subsets_bic <- bestglm(as.data.frame(tenure),
+                                  IC = "AIC",
+                                  method = "exhaustive",
+                                  TopModels = 1,
+                                  family = poisson)
+summary(tenure_best_subsets_bic$BestModel)
+```
+
+### Fit a model using the variables you selected from the prevous section, and determine in any interaction(s) are needed for this model in this section. You may use multiple code chunks, if you wish, to organize your code.
+
+```{r}
+tenure_poisson <- glm(tenure ~ age + quantity, family = poisson, data = tenure)
+
+summary(tenure_poisson)
+```
+``` {r}
+snowshoe <- read.table("snowshoe.txt", header = TRUE) %>%
+  mutate_if(is.character, as.factor) %>% mutate(snowshoes = as.factor(snowshoes))
+
+#SET BASELINE winterSports
+snowshoe <- within(snowshoe, product <- relevel(product, ref = 3))
+
+tenure <- snowshoe %>% select(-tenure,everything())
+
+tenure_poisson_int <- glm(tenure ~ .^2, family = poisson, data = tenure)
+summary(tenure_poisson_int)
+
+
+```
+``` {r}
+new_tenure_poisson <- glm(tenure ~ quantity + age + quantity*age, family = poisson, data = tenure)
+summary(new_tenure_poisson)
+
+anova(tenure_poisson, new_tenure_poisson, test = "LRT")
+```
+
+### Based on your results above, fit an appropriate ("final") model and check model assumptions in this section. You may use multiple code chunks, if you wish, to organize your code.
+
+```{r}
+# FINAL MODEL
+new_tenure_poisson <- glm(tenure ~ quantity + age + quantity*age, family = poisson, data = tenure)
+summary(new_tenure_poisson)
+```
+```{r}
+#LINEARITY
+scatter_quantity <- ggplot(tenure, aes(quantity, tenure)) +
+  geom_point()
+
+scatter_age <- ggplot(tenure, aes(age, tenure)) +
+  geom_point()
+
+grid.arrange(scatter_quantity,
+             scatter_age,
+             nrow = 1)
+```
+```{r}
+# Mean = Var
+x_qchisq <- seq(0, 1, by = 0.01) 
+y_qchisq <- qchisq(x_qchisq, df = 11)  # Apply qchisq function
+plot(y_qchisq)
+
+model_2 <- update(new_tenure_poisson, .~. - quantity)
+anova(model_2, new_tenure_poisson, test="Chisq")
+
+tenure_quasi <- glm(tenure ~ ., family = quasipoisson, data = tenure)
+summary(tenure_quasi)
+```
+
+
+
+### Complete statistical inference based on the best model you chose in this section. You may use multiple code chunks, if you wish, to organize your code.
+
+```{r}
+full_model <- glm(tenure ~ ., data = tenure)
+lr.stat <- lrtest(full_model, new_tenure_poisson)
+lr.stat
+```
+
+```{r}
+predict(new_tenure_poisson, 
+        newdata = data.frame(age = 52, quantity = 10),
+        level = 0.95,
+        interval = "confidence",
+        type = "response")
+```
+

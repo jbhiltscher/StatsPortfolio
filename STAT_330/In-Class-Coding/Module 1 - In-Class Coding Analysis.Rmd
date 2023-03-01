@@ -1,0 +1,102 @@
+---
+title: Module 1 - Simple Linear Regression
+subtitle: <center> <h1>In-Class Coding Analysis</h1> </center>
+output: html_document
+---
+
+<style type="text/css">
+h1.title {
+  font-size: 40px;
+  text-align: center;
+}
+</style>
+
+```{r setup, include=FALSE}
+# load packages here
+library(tidyverse)
+```
+
+## Data and Description
+
+**This is the same data set used in the Module 1 Course Notes. You can check all of the code you create here with the output from the course notes to verify you are getting the correct results.**
+
+Recent increases in gas prices make buyers more prone to purchase a car with better gas mileage, as measured by the **miles per gallon (MPG)**. Because of this, car manufacturers are increasingly trying to produce the car that gives the best MPG. Complicating this process are the many factors that go into determining what gas mileage a car will achieve on the road.
+
+One such factor is the **weight** of the car. While it is generally understood that heavier cars will experience fewer MPG, there is little understanding of how much an increase in weight will lead to a decrease MPG. By understanding this relationship, manufacturers will be able to perform a cost--benefit analysis that will assist them in their vehicle production.
+
+The MPG data set contains measurements of the **weight (column 1)** (in pounds) and **MPG (column 2)** of 289 cars. Download the MPGData.txt file from Canvas, and put it in the same folder as this R Markdown file. Now, read in the data set, and call the tibble "cars". Print a summary of the data and make sure the data makes sense.
+
+```{r}
+cars = read.table(header = TRUE, file = "MPGData.txt")
+cars
+```
+
+## Scatterplot
+
+#### Create a scatterplot of the data with variables on the appropriate axes.
+
+```{r, fig.align='center'}
+cars_base_plot = ggplot(data = cars) + 
+   geom_point(mapping = aes(x = Weight, y = MPG)) +
+   theme(aspect.ratio = 1)
+
+```
+
+## Correlation Coefficient 
+
+#### Report the correlation coefficient for the two variables.
+
+```{r}
+cor(x = cars$Weight, y = cars$MPG)
+# hint: use the cor() function
+```
+
+## Linear Regression
+
+#### (a) Apply linear regression to the data. (b) Print out a summary of the results from the `lm` function. (c) Save the residuals and fitted values to the `cars` tibble. (d) Print the first few rows of the `cars` tibble.
+
+```{r}
+lm_cars = lm( MPG ~ Weight, data = cars)
+
+cars$residuals <- lm_cars$residuals
+cars$fitted.values <- lm_cars$fitted.values
+# Then, save the residuals and fitted values to the cars data frame by creating
+# two new columns in the cars data frame containing that information from the 
+# lm() model fit ($residuals and $fitted.values)
+```
+
+#### Add the OLS regression line to the scatterplot.
+
+```{r, fig.align='center'}
+# <your code here> 
+# hint: you can save the scatterplot you made above to a variable, call it 
+# cars_base_plot. Then, add the regression line to the plot with the following
+# code:
+cars_linear_model <- cars_base_plot + 
+   geom_smooth(mapping = aes(x = Weight, y = MPG),
+               method = "lm",
+               se = FALSE)
+cars_linear_model
+```
+
+#### What is the average MPG for a car weighing 2500 pounds?
+
+```{r}
+# <your code here>
+# hint: use the predict() function to use the linear model created to make 
+# predictions: 
+   predict(lm_cars, newdata = data.frame(Weight = 2500))
+```
+
+#### Calculate the MSE, or the average squared variability of the residuals around the line.
+
+```{r}
+# <your code here>
+# hint: see the course notes for how the MSE is computed. You will use the 
+# $residuals and $df.residual from the model fit.
+mean(lm_cars$residuals^2)
+```
+
+## Summary and Conclusions
+
+*Always* start by plotting your data (exploratory data analysis: view data, create scatterplot, summarize data, etc.) before jumping into an analysis or fitting a model. We saw MPG and Weight looked to be linearly associated, so we chose to look at the correlation coefficient and then fit a simple linear regression model to the data. Make sure you know how to interpret the model coefficients!

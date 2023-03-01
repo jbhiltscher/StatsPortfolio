@@ -1,0 +1,455 @@
+---
+title: "Homework 7"
+subtitle: <center> <h1>Logistic Regression</h1> </center>
+author: <center> Jake Hiltscher <center>
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{=html}
+<style type="text/css">
+h1.title {
+font-size: 40px;
+text-align: center;
+}
+</style>
+```
+```{r setup, include=FALSE}
+# load packages here
+library(tidyverse)
+library(corrplot)  # for the correlation matrix
+library(bestglm)  # for variable selection
+library(gridExtra)
+library(car)  # for the VIFs
+library(pROC)  # for the ROC curve
+library(ROCR)  # for the color-coded ROC curve
+```
+
+## Data and Description
+
+Type 2 diabetes is a problem with the body that causes blood sugar
+levels to rise higher than normal (hyperglycemia) because the body does
+not use insulin properly. Specifically, the body cannot make enough
+insulin to keep blood sugar levels normal. Type 2 diabetes is associated
+with various health complications such as neuropathy (nerve damage),
+glaucoma, cataracts and various skin disorders. Early detection of
+diabetes is crucial to proper treatment so as to alleviate
+complications.
+
+The data set contains information on 392 randomly selected women who are
+at risk for diabetes. The data set contains the following variables:
+
+| Variable  | Description                                                                        |
+|-----------|------------------------------------------------------------------------------------|
+| pregnant  | Number of times pregnant                                                           |
+| glucose   | Plasma glucose concentration at 2 hours in an oral glucose tolerance test          |
+| diastolic | Diastolic blood pressure (mm Hg)                                                   |
+| triceps   | Triceps skin fold thickness (mm)                                                   |
+| insulin   | 2 hour serum insulin (mu U/ml)                                                     |
+| bmi       | Body mass index ($kg/m^2$, mass in kilograms divided by height in meters-squared)  |
+| pedigree  | Numeric strength of diabetes in family line (higher numbers mean stronger history) |
+| age       | Age                                                                                |
+| diabetes  | Does the patient have diabetes (0 if "No", 1 if "Yes")                             |
+
+The data can be found in the Diabetes data set on Canvas. Download
+Diabetes.txt, and put it in the same folder as this R Markdown file.
+
+#### 0. Replace the text "\< PUT YOUR NAME HERE \>" (above next to "author:") with your full name.
+
+#### 1. Read in the data set, call it "dia", remove the "row" column, and change the class of any categorical variables to a factor. Print a summary of the data and make sure the data makes sense.
+
+```{r}
+dia <- read_table("Diabetes.txt") %>% select(-c("row")) %>%
+  mutate(diabetes = as.factor(diabetes))
+
+head(dia)
+summary(dia)
+```
+
+#### 2. Explore the data. Create a correlation matrix for the covariates. *Comment on why or why not you think multicollinearity may be a problem for this data set.*
+
+```{r, fig.align='center'}
+corrplot(cor(dia %>% select(-c("diabetes"))), type = "upper")
+```
+
+It doesn't look like multicollinearity will be a really issues according
+to the
+
+#### 3. Explore the data. Create boxplots of the response against the following predictors: glucose, bmi, pedigree, and age (4 plots in total. You may want to use the grid.arrange function from the gridExtra package to display them in a 2x2 grid). *Briefly comment on one interesting trend you observe.*
+
+```{r, fig.align='center'}
+# Boxplot for glucose
+box_glucose <- ggplot(data = dia) +
+  geom_boxplot(mapping = aes(y = glucose, x = diabetes)) +
+  theme(aspect.ratio = 1) +
+  coord_flip()
+
+# Boxplot for bmi
+box_bmi <- ggplot(data = dia) +
+  geom_boxplot(mapping = aes(y = bmi, x = diabetes)) +
+  theme(aspect.ratio = 1) +
+  coord_flip()
+
+# Boxplot for pedigree
+box_pedigree <- ggplot(data = dia) +
+  geom_boxplot(mapping = aes(y = pedigree, x = diabetes)) +
+  theme(aspect.ratio = 1) +
+  coord_flip()
+
+# Boxplot for age
+box_age <- ggplot(data = dia) +
+  geom_boxplot(mapping = aes(y = age, x = diabetes)) +
+  theme(aspect.ratio = 1) +
+  coord_flip()
+
+grid.arrange(box_glucose, 
+             box_bmi,
+             box_pedigree,
+             box_age,
+             nrow = 2)
+
+```
+
+It's interesting that the age of individuals with diabetes is a good
+amount older than those whon't don't have it.
+
+#### 4. Explore the data. Create jittered scatterplots of the response against the following predictors: pregnant, diastolic, triceps, insulin (4 plots in total. You may want to use the grid.arrange function from the gridExtra package to display them in a 2x2 grid). *Briefly comment on one interesting trend you observe.*
+
+```{r, fig.align='center'}
+# Jittered Scatterplot for pregnant
+jit_pregnant <- ggplot(data = dia) +
+  geom_point(mapping = aes(y = diabetes, x = pregnant)) +
+  geom_jitter(mapping = aes(y = diabetes, x = pregnant),
+              height = 0.1) +
+  theme(aspect.ratio = 1)
+
+# Jittered Scatterplot for diastolic
+jit_diastolic <- ggplot(data = dia) +
+  geom_point(mapping = aes(y = diabetes, x = diastolic)) +
+  geom_jitter(mapping = aes(y = diabetes, x = diastolic),
+              height = 0.1) +
+  theme(aspect.ratio = 1)
+
+# Jittered Scatterplot for triceps
+jit_triceps <- ggplot(data = dia) +
+  geom_point(mapping = aes(y = diabetes, x = triceps)) +
+  geom_jitter(mapping = aes(y = diabetes, x = triceps),
+              height = 0.1) +
+  theme(aspect.ratio = 1)
+
+# Jittered Scatterplot for insulin
+jit_insulin <- ggplot(data = dia) +
+  geom_point(mapping = aes(y = diabetes, x = insulin)) +
+  geom_jitter(mapping = aes(y = diabetes, x = insulin),
+              height = 0.1) +
+  theme(aspect.ratio = 1)
+
+grid.arrange(jit_pregnant, 
+             jit_diastolic,
+             jit_triceps,
+             jit_insulin,
+             nrow = 2)
+```
+
+It seems like insulin levels are pretty even between having diabetes and
+not.
+
+#### 5. Briefly explain why traditional multiple linear regression methods are not suitable for *this* data set. You should mention at least two of the reasons we discussed in class (*your reasons should refer to this data set (i.e. be specific, not general)*).
+
+The response variable Diabetes is categorical (binomial). It wouldn't
+work because the predictions for the variables would be outide the range
+of 0 and 1. The residuals variance will probably be violated
+
+#### 6. Use a variable selection procedure to help you decide which, if any, variables to omit from the logistic regression model you will soon fit. You may choose which selection method to use (best subsets, backward, sequential replacement, LASSO, or elastic net) and which metric/criteria to use (AIC, BIC, or CV/PMSE). *Briefly justify (in a few sentences) why you chose the **method** and **metric** that you did.*
+
+```{r, fig.align='center'}
+dia_best_subsets_bic <- bestglm(as.data.frame(dia),
+                                  IC = "BIC",
+                                  method = "exhaustive",
+                                  TopModels = 1,
+                                  family = binomial)
+summary(dia_best_subsets_bic$BestModel)
+```
+
+I used best subset because it tends to be the most accurate and iterates
+the most thoroughly. I also chose "BIC" metric because it looks for the
+true model among the set of candidates.
+
+#### 7. Write out the logistic regression model for this data set using the covariates that you see fit. You should use parameters/Greek letters (NOT the "fitted" model using numbers...since you have not fit a model yet;) ).
+
+$log(\pi_i/1-\pi_i))$ $=$ $\beta_0$ $+$ $\beta_1$$\text{Pregnant}_i$ $+$
+$\beta_2$$\text{Glucose}_i$ $+$ $\beta_3$$\text{Diastolic}_i$ $+$
+$\beta_4$$\text{Triceps}_i$ $+$ $\beta_5$$\text{Insulin}_i$ $+$
+$\beta_6$$\text{BMI}_i$ $+$ $\beta_7$$\text{Pedigree}_i$ $+$
+$\beta_8$$\text{Age}_i$
+
+#### 8. Fit a logistic regression model using the covariates you chose. Print a summary of the results.
+
+```{r, fig.align='center'}
+dia_logistic <- dia_best_subsets_bic$BestModel
+
+summary(dia_logistic)
+```
+
+### Questions 9-13 involve using diagnostics to check the logistic regression model assumptions. For each assumption, (1) code the diagnostic(s) that I indicate (next to the assumption in parentheses) to determine if the assumption is violated, and (2) explain whether or not you think the assumption is violated and why you think that.
+
+#### 9. The X's vs log odds are linear (monotone in probability) (Use scatterplots with smoothers)
+
+```{r, fig.align='center'}
+#Glucose
+scatter.smooth(x = dia$glucose, y = as.numeric(dia$glucose) - 1)
+
+#BMI
+scatter.smooth(x = dia$bmi, y = as.numeric(dia$bmi) - 1)
+
+# pedigree
+scatter.smooth(x = dia$pedigree, y = as.numeric(dia$pedigree) - 1)
+
+# age
+scatter.smooth(x = dia$age, y = as.numeric(dia$age) - 1)
+```
+
+\< your response here \>
+
+#### 10. The observations are independent (no diagnostic tools - just think about how the data was collected and briefly write your thoughts)
+
+\< your response here \>
+
+#### 11. The model describes all observations (i.e., there are no influential points) (Use DFFITS)
+
+```{r, fig.align='center'}
+# ggplot(data = dia) + 
+#   geom_point(mapping = aes(x = as.numeric(rownames(dia)), 
+#                            y = abs(dffits))) +
+#   ylab("Absolute Value of DFFITS for diabetes") +
+#   xlab("Observation Number") +
+#   # for n > 30
+#   geom_hline(mapping = aes(yintercept = 2 * sqrt(length(dia_logistic$coefficients) /
+#                                                    length(dffits))),
+#              color = "red", 
+#              linetype = "dashed")+
+#   theme(aspect.ratio = 1)
+# 
+
+```
+
+\< your response here \>
+
+#### 12. Additional predictor variables are not required (no diagnostic tools - just think about the variables you have and if there are other variables you think would help predict the response)
+
+\< your response here \>
+
+#### 13. No multicollinearity (Use variance inflation factors)
+
+```{r, fig.align='center'}
+vif(dia_logistic)
+```
+
+This assumption is met. Mean of VIF values is \< 2.
+
+#### 14. Briefly comment on if all assumptions are met. If there is anything you would like to do before proceeding to statistical inference, do that here.
+
+```{r, fig.align='center'}
+# your code here, if needed
+```
+
+All assumptions are met.
+
+#### 15. For the coefficient for bmi, compute (and output) the log odds ratio ($\beta_{bmi}$, pull this value from the model output), odds ratio ($\exp\{\beta_{bmi}\}$), and the odds ratio converted to a percentage ($100 \times (\exp\{\beta_{bmi}\} - 1)%$). (If you cannot view the math used in this question (and subsequent), you can see it by knitting the document.)
+
+```{r, fig.align='center'}
+#Log odds
+bmi_log_odds <- dia_logistic$coefficients["bmi"]
+bmi_log_odds
+# odds
+bmi_odds <- exp(bmi_log_odds)
+bmi_odds
+
+#odds ration to percent
+bmi_percent <- 100 * (bmi_odds - 1)
+bmi_percent
+
+```
+
+#### 16. Interpret the coefficient for bmi based on the FOUR different ways we discussed in class.
+
+*Interpretation 1:* \< Holding all else constant, for every additional
+unit in BMI, the log odds of developing Diabetes increase by 0.0744. \>
+
+*Interpretation 2:* \< Since 0.0744\>0, then the log odds of developing
+Diabetes increase as BMI increases, holding all else constant. \>
+
+*Interpretation 3:* \< Holding all else constant, for every additional
+unit in BMI, the odds a patient develops Diabetes is exp{0.067} = 1.077
+times more likely. \>
+
+*Interpretation 4:* \< Holding all else constant, for every additional
+unit in BMI, the odds a patient develops Diabetes increase by 100 × (exp
+0.067 −1)% = 7.73%. \>
+
+#### 17. Create (and output) 95% confidence intervals for $\beta_k$, $\exp\{\beta_k\}$, and $100 \times (\exp\{\beta_k\} - 1)%$ for all predictors using the `confint` function.
+
+```{r, fig.align='center'}
+confint(dia_logistic, level = 0.95)
+```
+
+#### 18. Interpret the 95% confidence intervals for bmi for $\beta_{bmi}$, $\exp\{\beta_{bmi}\}$, and $100 \times (\exp\{\beta_{bmi}\} - 1)%$ (three interpretations total).
+
+*Interpretation using* $\beta_{bmi}$: \< Holding all else constant, we
+are 95% confident that as BMI increases by 1 unit, the logs odds of
+developing Diabetes increase between 0.035 and 0.115.\>
+
+*Interpretation using* $\exp\{\beta_{bmi}\}$: \< Holding all else
+constant, we are 95% confident that as BMI increases by 1 unit, the odds
+of developing Diabetes is between 1.036 and 1.122 times more likely. \>
+
+*Interpretation using* $100 \times (\exp\{\beta_{bmi}\} - 1)%$: \<
+Holding all else constant, we are 95% confident that as BMI increases by
+1 unit, the odds of developing Diabetes increase between 3.562% and
+12.187%. \>
+
+#### 19. Calculate a 95% confidence interval for the predicted probability that a patient has diabetes where pregnant = 1, glucose = 90, diastolic = 62, triceps = 18, insulin = 59, bmi = 25.1, pedigree = 1.268 and age = 25. Note that you may not need to use all of these values depending on the variables you chose to include in your model. *Do you think this patient will develop diabetes? Why or why not?*
+
+```{r}
+predict(dia_logistic, 
+        newdata = data.frame(glucose = 90,
+                             bmi = 25.1,
+                             pedigree = 1.268,
+                             age = 25),
+        level = 0.95,
+        interval = "confidence",
+        type = "response")
+```
+
+\< I don't think this individual would develop diabetes, there's about a
+9.4% chance. Not very high odds. \>
+
+#### 20. Compute the likelihood ratio test statistic (aka deviance, aka model chi-squared test) for the model, and compute the associated $p$-value. Print out the test statistic and the $p$-value. *Based on the results, what do you conclude?*
+
+```{r, fig.align='center'}
+# your code here
+```
+
+\< your response here \>
+
+#### 21. Compute (and output) the pseudo $R^2$ value for the model.
+
+```{r, fig.align='center'}
+# your code here
+```
+
+#### 22. What is the best cutoff value for the model that minimizes the percent misclassified? Show your code and output the best cutoff value.
+
+```{r, fig.align='center'}
+dia_preds <- predict(dia_logistic, type = "response")
+# create a sequence from 0 to 1 to represent all possible cut-off values that
+# we could choose:
+possible_cutoffs <- seq(0, 1, length = 100)
+
+dia_binary <- ifelse(dia$diabetes == "yes", 1, 0)
+# create an empty vector where we will store the percent misclassified for each
+# possible cut-off value we created:
+percent_misclass <- rep(NA, length(possible_cutoffs))
+
+# for each possible cut-off value, (1) grab the cut-off value, (2) for all 757
+# patients, store a 1 in "classify" if their predicted probability is larger 
+# than the cut-off value, and (3) compute the average percent misclassified 
+# across the 757 patients when using that cut-off by averaging the number of 
+# times "classify" (0 or 1 based on how that cut-off classified a person) is 
+# not the same as heart_binary (the truth):
+for(i in 1:length(possible_cutoffs)) {
+  cutoff <- possible_cutoffs[i]  # (1)
+  classify <- ifelse(dia_preds > cutoff, 1, 0)  # (2) 
+  percent_misclass[i] <- mean(classify != dia_binary)  # (3)
+}
+# percent_misclass holds the average misclassification rates for each cut-off
+
+# put this information in a dataframe so we can plot it with ggplot:
+misclass_data <- as.data.frame(cbind(percent_misclass, possible_cutoffs))
+
+# plot the misclassification rate against the cut-off value:
+ggplot(data = misclass_data) +
+  geom_line(mapping = aes(x = possible_cutoffs, y = percent_misclass),
+            size = 2) +
+  theme_bw() + 
+  xlab("Cutoff Value") +
+  ylab("Percent Misclassified") +
+  theme(aspect.ratio = 1)
+
+# choose the "best" cut-off that minimizes the percent misclassified:
+cutoff <- possible_cutoffs[which.min(percent_misclass)]
+cutoff
+```
+
+#### 23. Create (and output) a confusion matrix using the best cutoff value you found above.
+
+```{r, fig.align='center'}
+#use model to predict probability of default
+predicted <- predict(dia_logistic, type="response")
+
+#convert defaults from "Yes" and "No" to 1's and 0's
+dia_binary <- ifelse(dia$diabetes == "yes", 1, 0)
+
+dia_binary <- factor(dia_binary, levels = levels(dia[["diabetes"]]))
+
+#create confusion matrix
+confusionMatrix(c(0,1), predicted, cutoff = 1)
+??confusionMatrix
+```
+
+#### 24. Based on the confusion matrix, what is the value for the specificity, and what does the specificity measure? Print the specificity.
+
+```{r, fig.align='center'}
+# your code here
+```
+
+\< your response here \>
+
+#### 25. Based on the confusion matrix, what is the value for the sensitivity, and what does the sensitivity measure? Print the sensitivity.
+
+```{r, fig.align='center'}
+# your code here
+```
+
+\< your response here \>
+
+#### 26. Based on the confusion matrix, what is the percent correctly classified (accuracy), and what does the percent correctly classified measure? Print the percent correctly classified.
+
+```{r, fig.align='center'}
+# your code here
+```
+
+\< your response here \>
+
+#### 27. Plot (and output) the ROC curve for the model (either using the `pROC` package or the `ROCR` package).
+
+```{r, fig.align='center'}
+my_roc <- roc(dia$diabetes, dia_preds)
+
+ggplot() +
+  geom_path(mapping = aes(x = 1 - my_roc$specificities, 
+                          y = my_roc$sensitivities), 
+            size = 2) +
+  geom_abline(slope = 1, intercept = 0) +
+  theme_bw() + 
+  xlab("1 - Specificity (False Positive Rate)") +
+  ylab("Sensitivity (True Positive Rate)") +
+  theme(aspect.ratio = 1)
+
+```
+
+#### 28. What is the AUC for the ROC curve plotted above? Print the value of the AUC.
+
+```{r, fig.align='center'}
+auc(my_roc)  # AUC
+```
+
+#### 29. Briefly summarize what you learned, personally, from this analysis about the statistics, model fitting process, etc.
+
+[**1 point for something reasonable.**]{style="color:red"}
+
+#### 30. Briefly summarize what you learned from this analysis *to a non-statistician*. Write a few sentences about (1) the purpose of this data set and analysis and (2) what you learned about this data set from your analysis. Write your response as if you were addressing a business manager (avoid using statistics jargon) and just provide the main take-aways.
+
+\< your response here \>

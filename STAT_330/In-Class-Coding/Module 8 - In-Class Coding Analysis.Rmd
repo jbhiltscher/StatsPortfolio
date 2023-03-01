@@ -1,0 +1,164 @@
+---
+title: "Module 8 - Poisson Regression"
+subtitle: <center> <h1>In-Class Analysis</h1> </center>
+output: html_document
+---
+
+<style type="text/css">
+h1.title {
+font-size: 40px;
+text-align: center;
+}
+</style>
+
+```{r setup, include=FALSE}
+# load packages here
+library(tidyverse)
+library(corrplot)  # for the correlation matrix
+library(bestglm)  # for variable selection
+library(car)  # for VIFs
+```
+
+## Data and Description
+
+The Federal Highway Administration (FHWA) conducts research in an effort to improve road safety. In these research efforts, the FHWA collects data on the location of crashes along with characteristics of a given road. Knowing the location of accidents on a road can help the FHWA determine which segments of a road are dangerous (i.e. so called “hot spots”). Additionally, characteristics of the road give insight into why the crash happened. For example, if a section of the road containing strong curvature has a high rate of crashes, the FHWA can suggest safety improvements to that particular section of road in an effort to reduce the number of crashes.
+
+The purpose of this analysis is to regress the number of car crashes on segments of a road onto variables such as road characteristics (type of pavement, shoulder width, number of lanes, etc.) and annual average daily traffic. The ultimate goal of this modeling is to be able to identify road characteristics that lead to increased number of accidents. Data was collected for a random set of 207 road segments in Minnesota, and here is a description of the variables: 
+
+Variable     | Description
+------------ | -------------
+AADT         | Average annual daily traffic
+MEDWID       | Median width in feet, one of three values: >30, 1-30, VR
+MED_TYPE     | Median type, one of two values: Barrier, No Barrier
+LSHLDWID     | Left shoulder width in feet, one of two values: <=4 feet, > 4 feet
+LSHL_TYP     | Left shoulder type, one of two values: Bitum Conc, Other
+SURF_WID     | Surface width in feet, one of two values: <=24 feet, > 24 feet
+RSHLDWID     | Right shoulder width in feet, one of two values: 10 feet, 8 feet
+RSHL_TYP     | Right shoulder type, one of two values: Bitum Conc, Other
+NO_LANES     | Total number of lanes, one of two values: > 4 lanes, 4 lanes
+LANEWID      | Lane width, one of two values: > 12 feet, 12 feet
+RODWYCLS     | Roadway class, one of two values: Rural, Urban
+TOTALCRASHES | Total number of crashes per segment
+
+Do the following:
+
+1. Download the "HSIS.csv" file from Canvas and put it in the same folder as this R Markdown file.
+2. Read in the data set, and call it "crash".
+3. Convert the character variables to factors (a fast way is to use this code `mutate_if(is.character, as.factor)` with a pipe preceeding it when you read in the data).
+4. Look at a summary of the data.
+
+```{r}
+crash <- read_csv("HSIS.csv") %>% 
+  mutate_if(is.character, as.factor)
+summary(crash)
+```
+
+## Explore the data. Create a histogram for TOTALCRASHES (should match slide 4 in the notes).
+
+```{r, fig.align='center'}
+ggplot(data = crash) + 
+  geom_histogram(mapping = aes(x = TOTALCRASHES, y = ..density..), 
+                 binwidth = 4) +
+  theme_bw() + 
+  theme(aspect.ratio = 1)
+```
+
+## Perform some type of variable selection procedure to determine which variables to include in the model. We will use the BIC metric with the best subsets method.
+
+```{r, fig.align='center'}
+crash_best_subsets_bic <- bestglm(as.data.frame(crash),
+                                  IC = "BIC",
+                                  method = "exhaustive",
+                                  TopModels = 1,
+                                  family = poisson)
+summary(crash_best_subsets_bic$BestModel)
+```
+
+## Use the `glm` function to fit a Poisson regression model using the variables identified above. Note that you will need to include the following argument to the `glm` function to indicate you are performing Poisson regression: `family = poisson(link = "log")`. (The coefficients for AADT and RODWYCLS should match the ones on slides 21 and 22 in the notes.)
+
+```{r, fig.align='center'}
+crash_poisson <- glm(...) 
+summary(crash_poisson)
+```
+
+## Check the following Poisson regression model assumption: The x's vs log(y) are linear
+
+```{r, fig.align='center'}
+# Create a scatterplot of the log of the response against any continuous
+# predictors you included in the model
+
+=
+
+# Use added variable plots for any continuous predictors you included in the
+# model
+
+# <your code here>
+```
+
+## Check the following Poisson regression model assumption: Mean = Variance (No overdispersion/underdispersion)
+
+```{r, fig.align='center'}
+# Compare the mean and variance of TOTALCRASHES
+
+# <your code here>
+
+# Conduct the formal test (hint: use the qchisq function with 
+# lower.tail = FALSE)
+
+# <your code here>
+
+# Fit a Quasi-Poisson model and look at the dispersion parameter estimate 
+# (hint: use the glm function with family = quasipoisson(link = "log"))
+
+# <your code here>
+```
+
+## Create 95% confidence intervals for $\beta_k$, $\exp\{\beta_k\}$, and $100 \times (\exp\{\beta_k\} - 1)%$ for all predictors using the `confint` function. Make sure the confidence intervals for AADT match the ones in the notes and that you can interpret the intervals correctly.
+
+```{r, fig.align='center'}
+# Hint: for the last two confidence intervals, you will just be transforming
+# the values you get from confint (you will not be using different arguments
+# to the function)
+```
+
+## Calculate the predicted average number of total crashes using the `predict` function for a road segment where AADT = 20000, MEDWID = "VR", MED_TYPE = "No Barrier", SURF_WID = "<= 24 feet", and RODWYCLS = "Rural".
+
+```{r, eval=FALSE}
+# <your code here>
+```
+
+## Calculate a 95% confidence interval for the predicted average number of total crashes for a road segment where AADT = 20000, MEDWID = "VR", MED_TYPE = "No Barrier", SURF_WID = "<= 24 feet", and RODWYCLS = "Rural".
+
+```{r, fig.align='center'}
+# Get the predicted log of the average number of crashes with the 
+# standard error
+# <your code here>
+
+# Compute the margin of error
+# <your code here>
+
+# Compute the 95% confidence interval (and point estimate) for the log of
+# the average number of crashes
+# <your code here>
+
+# Compute the 95% confidence interval (and point estimate) for the predicted 
+# average number of total crashes
+# <your code here>
+```
+
+## Check the Poisson regression model performance.
+
+```{r, fig.align='center'}
+# Likelihood ratio test statistic
+# Hint: use the deviances reported in the logistic regression model output
+
+# Likelihood ratio p-value
+# Hint: use the pchisq function
+
+# Pseudo R-Squared
+# Hint: use the deviances reported in the logistic regression model output
+```
+
+## Summary and Conclusions
+
+Poisson regression is used when you have a response variable that is a count. Many of the things we learned for linear regression apply to Poisson regression, but there are several differences. For instance, we different model assumptions, we measure performance based on deviances (instead of sums of squares), and the coefficients are in terms of the log average number of occurrences. Overdispersion is a big problem for many data sets (like this one), in which case, Poisson regression is not appropriate, and a different model should be use (ex: quasi-Poisson, negative binomial, zero-inflated Poisson, etc - outside of the scope of the course).
